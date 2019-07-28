@@ -36,14 +36,15 @@ def parse_arguments():
   parser = argparse.ArgumentParser()
   parser.add_argument('--tf-data-dir',
                       type=str,
-                      default='/tmp/data/',
+                      default='/home/jchohome_gmail_com/mnist/data',
                       help='GCS path or local path of training data.')
   parser.add_argument('--tf-model-dir',
+                      default='/home/jchohome_gmail_com/mnist/model',
                       type=str,
                       help='GCS path or local directory.')
   parser.add_argument('--tf-export-dir',
                       type=str,
-                      default='mnist/',
+                      default='/home/jchohome_gmail_com/mnist/export',
                       help='GCS path or local directory to export model')
   parser.add_argument('--tf-model-type',
                       type=str,
