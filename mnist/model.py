@@ -28,12 +28,26 @@ import sys
 import numpy as np
 import tensorflow as tf
 
+from cb_slurm_cluster_resolver import CbSlurmClusterResolver
+
 N_DIGITS = 10  # Number of digits.
 X_FEATURE = 'x'  # Name of the input feature.
 
 
 def parse_arguments():
   parser = argparse.ArgumentParser()
+  parser.add_argument('--num-worker',
+                      default=0,
+                      type=int,
+                      help='Number of workers')
+  parser.add_argument('--num-ps',
+                      default=0,
+                      type=int,
+                      help='Number of parameter servers')
+  parser.add_argument('--num-eval',
+                      default=0,
+                      type=int,
+                      help='Number of evaluators')
   parser.add_argument('--tf-data-dir',
                       type=str,
                       default='/home/jchohome_gmail_com/mnist/data',
@@ -130,7 +144,6 @@ def conv_model(features, labels, mode, params):
         learning_rate=params["learning_rate"])
     train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
     return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
-
   # Compute evaluation metrics.
   eval_metric_ops = {
       'accuracy': tf.metrics.accuracy(
@@ -154,6 +167,23 @@ def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
 
   args = parse_arguments()
+  
+  job_spec = {
+    'chief': 1,
+  }
+  if args.num_worker > 0:
+    job_spec['worker'] = args.num_worker
+  if args.num_ps > 0:
+    job_spec['ps'] = args.num_ps
+  if args.num_eval > 0:
+    job_spec['evaluator'] = args.num_eval
+
+  slurm_cluster_resolver = CbSlurmClusterResolver(job_spec)
+  cluster_spec = slurm_cluster_resolver.cluster_spec()
+  task_type, task_id = slurm_cluster_resolver.get_task_info()  
+  os.environ['TF_CONFIG'] = json.dumps(
+    {'cluster': cluster_spec.as_dict(),
+     'task': {'type': task_type, 'index': task_id}})
 
   tf_config = os.environ.get('TF_CONFIG', '{}')
   tf.logging.info("TF_CONFIG %s", tf_config)

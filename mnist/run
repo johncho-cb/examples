@@ -1,1 +1,1 @@
-srun -N $1 --ntasks-per-node $2 singularity exec --home /home/jchohome_gmail_com /apps/singularity/tensorflow_latest.sif python $3
+srun -N $1 --ntasks-per-node $2 singularity exec --home /home/jchohome_gmail_com /apps/singularity/tensorflow_latest.sif $3 $4 $5 $6 $7 $8 $9

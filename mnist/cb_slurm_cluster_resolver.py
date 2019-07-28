@@ -87,8 +87,10 @@ class CbSlurmClusterResolver(ClusterResolver):
 
     self._cluster_allocation = {}
 
-    if sum(self._jobs.values()) != num_tasks:
-      raise RuntimeError('Requested more tasks then assigned tasks.')
+    total_jobs = sum(self._jobs.values())
+    if total_jobs != num_tasks:
+      raise RuntimeError("Requested more tasks does not match assigned tasks.  jobs:{} != tasks:{}".
+                         format(total_jobs, num_tasks))
 
   def cluster_spec(self):
     """Returns a ClusterSpec object based on the latest instance group info.
