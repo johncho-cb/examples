@@ -1,0 +1,1 @@
+singularity shell --home /home/jchohome_gmail_com /apps/singularity/tensorflow_latest.sif
