@@ -1,0 +1,1 @@
+srun -N 3 singularity exec --home /home/jchohome_gmail_com /apps/singularity/tensorflow_latest.sif python ./slurm_resolver_test.py

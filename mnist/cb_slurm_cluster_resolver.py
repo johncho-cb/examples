@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import collections
 import os
+import re
 import subprocess
 
 from tensorflow.python.distribute.cluster_resolver.cluster_resolver import ClusterResolver
@@ -15,9 +16,22 @@ from tensorflow.python.util.tf_export import tf_export
 class CbSlurmClusterResolver(ClusterResolver):
   """Cerebras Cluster Resolver for Slurm workload manager.
 
-  Based on slurm_cluster_resolver.py with changes to remove GPU
-  related assumptions.
+  Based on slurm_cluster_resolver + deepsense-api/tensorflow_on_slurm.
   """
+
+  def _pad_zeros(self, iterable, length):
+    return (str(t).rjust(length, '0') for t in iterable)
+
+  def _expand_ids(self, ids):
+    ids = ids.split(',')
+    result = []
+    for id in ids:
+        if '-' in id:
+            begin, end = [int(token) for token in id.split('-')]
+            result.extend(self._pad_zeros(range(begin, end+1), len(token)))
+        else:
+            result.append(id)
+    return result
 
   def _resolve_hostnames(self):
     """Resolve host names of nodes allocated in current jobs.
@@ -25,47 +39,30 @@ class CbSlurmClusterResolver(ClusterResolver):
     Returns:
       A list of node names as strings.
     """
-    hostlist = (subprocess.check_output(['scontrol', 'show', 'hostname']).
-                decode('utf-8').strip().split('\n'))
+    if 'SLURM_JOB_NODELIST' in os.environ:
+      prefix, ids = re.findall("(.*)\[(.*)\]", os.environ["SLURM_JOB_NODELIST"])[0]
+      ids = self._expand_ids(ids)
+      hostlist = [prefix + str(id) for id in ids]
+    else:
+      raise RuntimeError('SLURM_JOB_NODELIST is not set')
+
     return hostlist
 
   def __init__(self,
                jobs,
                port_base=8888,
-               gpus_per_node=1,
-               gpus_per_task=1,
-               tasks_per_node=None,
-               auto_set_gpu=True,
                rpc_layer='grpc'):
-    """Creates a new SlurmClusterResolver object.
-
-    This takes in parameters and creates a SlurmClusterResolver object. It uses
-    those parameters to check which nodes will processes reside and resolves
-    their hostnames. With the number of the GPUs on each node and number of GPUs
-    for each task it offsets the port number for each processes and allocate
-    GPUs to tasks by setting environment variables. The resolver currently
-    supports homogeneous tasks and default Slurm process allocation.
+    """Creates a new CbSlurmClusterResolver object.
 
     Args:
       jobs: Dictionary with job names as key and number of tasks in the job as
         value
       port_base: The first port number to start with for processes on a node.
-      gpus_per_node: Number of GPUs available on each node.
-      gpus_per_task: Number of GPUs to be used for each task.
-      tasks_per_node: Number of tasks to run on each node, if not set defaults
-        to Slurm's output environment variable SLURM_NTASKS_PER_NODE.
-      auto_set_gpu: Set the visible CUDA devices automatically while resolving
-        the cluster by setting CUDA_VISIBLE_DEVICES environment variable.
-        Defaults to True.
       rpc_layer: (Optional) The protocol TensorFlow uses to communicate between
         nodes. Defaults to 'grpc'.
 
     Returns:
-      A ClusterResolver object which can be used with distributed TensorFlow.
-
-    Raises:
-      RuntimeError: If requested more GPUs per node then available or requested
-      more tasks then assigned tasks.
+      A CbClusterResolver object which can be used with distributed TensorFlow.
     """
 
     # check if launched by mpirun
@@ -79,42 +76,22 @@ class CbSlurmClusterResolver(ClusterResolver):
     self._jobs = collections.OrderedDict(sorted(jobs.items()))
     self._port_base = port_base
 
-    # user specification overrides SLURM specification
-    if tasks_per_node is not None:
-      self._tasks_per_node = tasks_per_node
-    elif tasks_per_node is None and 'SLURM_NTASKS_PER_NODE' in os.environ:
+    if 'SLURM_NTASKS_PER_NODE' in os.environ:
       self._tasks_per_node = int(os.environ['SLURM_NTASKS_PER_NODE'])
     else:
-      raise RuntimeError('Neither `tasks_per_node` or '
-                         'SLURM_NTASKS_PER_NODE is set.')
+      self._tasks_per_node = 1
 
-    self._gpus_per_node = gpus_per_node
-    self._gpus_per_task = gpus_per_task
-
-    self._auto_set_gpu = auto_set_gpu
     self.task_type = None
     self.task_id = None
     self.rpc_layer = rpc_layer
 
-    self._gpu_allocation = []
     self._cluster_allocation = {}
-
-    if self._tasks_per_node * self._gpus_per_task > self._gpus_per_node:
-      raise RuntimeError('Requested more GPUs per node then available.')
 
     if sum(self._jobs.values()) != num_tasks:
       raise RuntimeError('Requested more tasks then assigned tasks.')
 
   def cluster_spec(self):
     """Returns a ClusterSpec object based on the latest instance group info.
-
-    This returns a ClusterSpec object for use based on information from the
-    specified initialization parameters and Slurm environment variables. The
-    cluster specification is resolved each time this function is called. The
-    resolver extract hostnames of nodes by scontrol and pack tasks in that
-    order until a node a has number of tasks that is equal to specification.
-    GPUs on nodes are allocated to tasks by specification through setting
-    CUDA_VISIBLE_DEVICES environment variable.
 
     Returns:
       A ClusterSpec containing host information retrieved from Slurm's
@@ -123,22 +100,13 @@ class CbSlurmClusterResolver(ClusterResolver):
     hostlist = self._resolve_hostnames()
 
     task_list = []
-    self._gpu_allocation = []
     self._cluster_allocation = {}
 
     for host in hostlist:
-      for port_offset, gpu_offset in zip(
-          range(self._tasks_per_node),
-          range(0, self._gpus_per_node, self._gpus_per_task)):
+      for port_offset in range(self._tasks_per_node):
 
         host_addr = '%s:%d' % (host, self._port_base + port_offset)
         task_list.append(host_addr)
-        gpu_id_list = []
-
-        for gpu_id in range(gpu_offset, gpu_offset + self._gpus_per_task):
-          gpu_id_list.append(str(gpu_id))
-
-        self._gpu_allocation.append(','.join(gpu_id_list))
 
     cluster_rank_offset_start = 0
     cluster_rank_offset_end = 0
@@ -154,9 +122,6 @@ class CbSlurmClusterResolver(ClusterResolver):
         self.task_id = self._rank - cluster_rank_offset_start
 
       cluster_rank_offset_start = cluster_rank_offset_end
-
-    if self._auto_set_gpu is True:
-      os.environ['CUDA_VISIBLE_DEVICES'] = self._gpu_allocation[self._rank]
 
     return ClusterSpec(self._cluster_allocation)
 
@@ -195,11 +160,3 @@ class CbSlurmClusterResolver(ClusterResolver):
           rpc_layer or self.rpc_layer)
 
     return ''
-
-  def num_accelerators(self,
-                       task_type=None,
-                       task_id=None,
-                       config_proto=None):
-    # Unused, since this is set in __init__ manually.
-    del task_type, task_id, config_proto
-    return {'GPU': self._gpus_per_node}
