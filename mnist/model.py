@@ -50,15 +50,15 @@ def parse_arguments():
                       help='Number of evaluators')
   parser.add_argument('--tf-data-dir',
                       type=str,
-                      default='/home/jchohome_gmail_com/mnist/data',
+                      default='/n0/johncho/mnist/data',
                       help='GCS path or local path of training data.')
   parser.add_argument('--tf-model-dir',
-                      default='/home/jchohome_gmail_com/mnist/model',
+                      default='/cb/home/johncho/mnist/model',
                       type=str,
                       help='GCS path or local directory.')
   parser.add_argument('--tf-export-dir',
                       type=str,
-                      default='/home/jchohome_gmail_com/mnist/export',
+                      default='/cb/home/johncho/mnist/export',
                       help='GCS path or local directory to export model')
   parser.add_argument('--tf-model-type',
                       type=str,
@@ -202,6 +202,8 @@ def main(_):
     tf.logging.info("Will not export model")
 
   # Download and load MNIST dataset.
+  if not os.path.exists(args.tf_data_dir):
+      os.makedirs(args.tf_data_dir)
   mnist = tf.contrib.learn.datasets.DATASETS['mnist'](args.tf_data_dir)
   train_input_fn = tf.estimator.inputs.numpy_input_fn(
       x={X_FEATURE: mnist.train.images},

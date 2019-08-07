@@ -1,1 +1,1 @@
-singularity shell --home /home/jchohome_gmail_com /apps/singularity/tensorflow_latest.sif
+singularity shell --home /cb/home/johncho -B /n0:/n0 /cb/apps/singularity/tensorflow_latest.sif
